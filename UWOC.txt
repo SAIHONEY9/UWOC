@@ -1,0 +1,76 @@
+clc; clear all;
+%% SET OF EPS AND THETA
+bsw=2.33*10^(-3);  b = 1.824; g = 0.924; Np=10^6;n= 1;
+bp = b- bsw;
+theta_all = linspace(0,pi,10000);
+ct=cos(theta_all);
+eps_all = (2*0.06225*pi*bsw/b)*((0.27833*(ct.^3)) - ct + 0.72166) + bp*(1+g)*(sqrt(1+g^2-2*g*ct)+g-1)./(2*b*g*sqrt(1+g^2-2*g*ct));
+eps_min = min(eps_all); eps_max=max(eps_all);
+
+vf=zeros(Np,7); ph_status=zeros(1,Np); W=zeros(1,Np); epsfinal=zeros(1,Np); thetasfinal=zeros(1,Np);
+for j=1:10^6  %%STEP6
+    %STEP1
+    r1 = rand; r2 = rand; t=0; w(1)=1; c=2.19; i=1; d=1; zth=0.75; a= 0.366;
+    thetaA = pi/3; thetaR=pi/3; thetar=pi-thetaA-thetaR; 
+    tht = sqrt(1-r1)*2*thetaA.^2;
+    phi = rand*2*pi; phiR = rand*2*pi;
+    xmin=-d*sin(thetar)*cos(phiR); xmax=-1*xmin; ymin=-d*sin(thetar)*sin(phiR); ymax=-1*ymin; zmin=zth;zmax=d*cos(thetar);
+    s = -log(r2)/c;
+    v(1,:) = [s*sin(tht)*cos(phi) s*sin(tht)*cos(phi) s*cos(tht) tht phi t w(1)];
+    %disp(v(i,:));
+    while(i==1 || abs(v(i,3)-d) > 0.25 || (1-a/c)*w(i) > 10^-6) %STEP 4
+        %STEP2
+        eps=unifrnd(eps_min,eps_max); [x,y]=min(abs(eps_all-eps)); thts=theta_all(y);
+        r3=rand; phis=2*pi*r3;
+     
+        %STEP3
+        w(i+1) = -(a/c)*w(i);
+        v(i+1,:)=v(i,:) + [s*sin(thts)*cos(phis) s*sin(thts)*cos(phis) s*cos(thts) thts phis s/(3*10^8) w(i+1)];  %% 6th column same for every update ???
+        %disp(v(i+1,:));
+        i=i+1;
+
+    end
+    if ((1-a/c)*w(i) < 10^-6)  %STEP5
+        ph_status(j)=0;  %PHOTON LOST
+    elseif ( xmin<v(i,1) && v(i,1)<xmax && ymin<v(i,2) && v(i,2)<ymax && zmin<v(i,3) && v(i,3)<zmax )
+        ph_status(j)=1; %PHOTON DETECTED
+    end
+    
+    vf(j,:)=v(i,:);
+    k=find(ph_status==1);    
+    sum_w=sum(vf(k,7));
+    epsfinal(j)=eps; thetasfinal(j)=thts;   %INPUT AND OUTPUT FOR ANN TOOL
+end
+ %% ANY FUNCTION
+net = feedforwardnet(10);
+net = configure(net,epsfinal);
+net.divideParam.trainRatio=0.7;
+net.divideParam.testRatio=0.15;
+net.divideParam.valRatio=0.15;
+net = train(net,epsfinal,thetasfinal);
+y=net(epsfinal);
+perf=perform(net,y,thetasfinal);
+error = gsubtract(thetasfinal,y);
+%view(net);
+disp([net(1), net(2), net(3), net(4), net(9)]);
+n=1; p=0; q=0; i=1;
+for j=1:10^6
+    while(ph_status(j)==1&& vf(j,6)<10^(-8) && p<= n*10^(-8))
+         if(j>=2)
+        if(v(j,6)>v(j-1,6))
+          m= v(j,6)-v(j-1,6);
+        elseif(v(j,6)<=v(j-1,6))
+            m = 0;
+        end
+        end
+        p = p+ m;
+        q =q + vf(j,7);
+    end
+    if(p>= n*10^(-8))
+        time(i) = p; weight(i) =q;
+        q=0;
+        n=n+1; i=i+1;
+    end
+end
+    histogram(weight);
+    
